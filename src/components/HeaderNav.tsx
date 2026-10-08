@@ -57,7 +57,7 @@ export const HeaderNav: React.FC = () => {
       </div>
 
       {/* Floating Center Navbar */}
-      <div className="max-w-2xl mx-auto px-4 pt-3.5 flex justify-center">
+      <div className="max-w-2xl mx-auto px-2 sm:px-4 pt-3.5 pl-14 sm:pl-4 flex justify-center">
         <nav className="pointer-events-auto inline-flex items-center gap-1 sm:gap-2 px-3 py-1.5 rounded-full bg-white/80 backdrop-blur-md border border-pink-200/80 shadow-[0_4px_16px_rgba(244,114,182,0.12)]">
           <button
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
