@@ -180,12 +180,12 @@ export const SITE_DATA = {
     {
       term: "魔王护",
       pinyin: "mó wáng hù",
-      origin: "为她挡在前面的瞬间与守护的标记。",
+      origin: "其实是我",
     },
     {
       term: "都怪你",
       pinyin: "dōu guài nǐ",
-      origin: "桥头走错路时的一句娇嗔，没开麦却偷笑了很久。",
+      origin: "桥头的一句娇嗔，我没开麦却偷笑了很久。",
     },
     {
       term: "慢慢",
