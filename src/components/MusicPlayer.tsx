@@ -1,51 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Play, Pause, Volume2, VolumeX, Music, Disc3, Sparkles, Folder, Check, RotateCcw } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Music, Disc3, Sparkles, UploadCloud, CheckCircle2, AlertCircle } from 'lucide-react';
 
-// IndexedDB Helper for permanent local storage of the MP3 track
-const DB_NAME = 'MemorySiteAudioDB';
-const STORE_NAME = 'audio_files';
-const AUDIO_KEY = 'fixed_suiyueruge_mp3';
-
-const openDB = (): Promise<IDBDatabase> => {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME);
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-};
-
-const saveAudioBlob = async (blob: Blob): Promise<void> => {
-  try {
-    const db = await openDB();
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    tx.objectStore(STORE_NAME).put(blob, AUDIO_KEY);
-  } catch (err) {
-    console.error('Failed to save audio to IndexedDB', err);
-  }
-};
-
-const getStoredAudioBlob = async (): Promise<Blob | null> => {
-  try {
-    const db = await openDB();
-    const tx = db.transaction(STORE_NAME, 'readonly');
-    const request = tx.objectStore(STORE_NAME).get(AUDIO_KEY);
-    return new Promise((resolve) => {
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => resolve(null);
-    });
-  } catch {
-    return null;
-  }
-};
-
-// Musical notes and chords for Eason Chan's classic "岁月如歌"
+// Musical notes and chords for Eason Chan's classic "岁月如歌" fallback
 const NOTE_FREQS: Record<string, number> = {
   A3: 220.00, B3: 246.94,
   C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392.00, A4: 440.00, B4: 493.88,
@@ -96,8 +53,9 @@ export const MusicPlayer: React.FC = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [audioSource, setAudioSource] = useState<'audioFile' | 'synth'>('synth');
-  const [hasSavedFile, setHasSavedFile] = useState(false);
+  const [isServerSynced, setIsServerSynced] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [audioSource, setAudioSource] = useState<'serverFile' | 'synth'>('synth');
   const [volume, setVolume] = useState(0.7);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -126,39 +84,27 @@ export const MusicPlayer: React.FC = () => {
     }
   }, [volume]);
 
-  // Load any previously saved MP3 from IndexedDB or try public /suiyueruge.mp3
-  useEffect(() => {
-    const initAudio = async () => {
-      try {
-        const storedBlob = await getStoredAudioBlob();
-        if (storedBlob && audioElementRef.current) {
-          const objectUrl = URL.createObjectURL(storedBlob);
-          audioElementRef.current.src = objectUrl;
-          setAudioSource('audioFile');
-          setHasSavedFile(true);
-          return;
+  // Check server music file status on mount
+  const checkServerMusic = async () => {
+    try {
+      const res = await fetch('/api/music-status');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.exists && audioElementRef.current) {
+          audioElementRef.current.src = `/suiyueruge.mp3?t=${Date.now()}`;
+          setAudioSource('serverFile');
+          setIsServerSynced(true);
+          return true;
         }
-
-        // Test if /suiyueruge.mp3 exists
-        if (audioElementRef.current) {
-          const testAudio = new Audio('/suiyueruge.mp3');
-          testAudio.oncanplaythrough = () => {
-            if (audioElementRef.current) {
-              audioElementRef.current.src = '/suiyueruge.mp3';
-              setAudioSource('audioFile');
-            }
-          };
-          testAudio.onerror = () => {
-            // Keep pure piano synth as default
-            setAudioSource('synth');
-          };
-        }
-      } catch {
-        setAudioSource('synth');
       }
-    };
+    } catch {
+      // Server check failed, fallback to synth
+    }
+    return false;
+  };
 
-    initAudio();
+  useEffect(() => {
+    checkServerMusic();
   }, []);
 
   // Soft piano note generator
@@ -239,7 +185,7 @@ export const MusicPlayer: React.FC = () => {
 
   const startPlayback = async () => {
     try {
-      if (audioSource === 'audioFile' && audioElementRef.current && audioElementRef.current.src) {
+      if (audioSource === 'serverFile' && audioElementRef.current && audioElementRef.current.src) {
         await audioElementRef.current.play();
         setIsPlaying(true);
         isPlayingRef.current = true;
@@ -310,20 +256,40 @@ export const MusicPlayer: React.FC = () => {
     };
   }, [audioSource]);
 
-  // Handle uploading and permanently saving user's MP3 track
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Upload MP3 directly to server /api/upload-music to persist for ALL visitors
+  const handleServerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file && audioElementRef.current) {
-      await saveAudioBlob(file);
-      const url = URL.createObjectURL(file);
-      audioElementRef.current.src = url;
-      audioElementRef.current.loop = true;
-      setAudioSource('audioFile');
-      setHasSavedFile(true);
-      stopPlayback();
-      setTimeout(() => {
-        audioElementRef.current?.play().then(() => setIsPlaying(true));
-      }, 100);
+    if (!file) return;
+
+    try {
+      setIsUploading(true);
+      const res = await fetch('/api/upload-music', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+        },
+        body: file,
+      });
+
+      if (res.ok) {
+        if (audioElementRef.current) {
+          audioElementRef.current.src = `/suiyueruge.mp3?t=${Date.now()}`;
+          audioElementRef.current.loop = true;
+        }
+        setAudioSource('serverFile');
+        setIsServerSynced(true);
+        stopPlayback();
+        setTimeout(() => {
+          audioElementRef.current?.play().then(() => setIsPlaying(true));
+        }, 150);
+      } else {
+        alert('上传失败，请稍后重试');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('同步到服务器时出现网络问题');
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -333,12 +299,12 @@ export const MusicPlayer: React.FC = () => {
       <input
         type="file"
         ref={fileInputRef}
-        onChange={handleFileUpload}
+        onChange={handleServerUpload}
         accept="audio/*"
         className="hidden"
       />
 
-      {/* Positioned at Top Left: fixed top-3.5 sm:top-4 left-3 sm:left-6 z-50 */}
+      {/* Fixed at Top Left: fixed top-3.5 sm:top-4 left-3 sm:left-6 z-50 */}
       <div className="fixed top-3.5 sm:top-4 left-3 sm:left-6 z-50">
         <motion.div
           initial={{ opacity: 0, x: -20 }}
@@ -352,7 +318,7 @@ export const MusicPlayer: React.FC = () => {
             <button
               onClick={() => setIsExpanded(!isExpanded)}
               className="relative flex items-center justify-center w-7 sm:w-8 h-7 sm:h-8 rounded-full bg-gradient-to-tr from-pink-400 to-rose-400 text-white shadow-xs cursor-pointer group"
-              title="岁月如歌 · 播放详情"
+              title="岁月如歌 · 播放详情与服务器同步"
             >
               <Disc3
                 className={`w-4 h-4 transition-transform duration-700 ${
@@ -381,7 +347,7 @@ export const MusicPlayer: React.FC = () => {
                 )}
               </div>
               <span className="text-[10px] text-rose-400/80 font-sans truncate">
-                陈奕迅 · {hasSavedFile ? '专属原曲' : '纯净伴奏'}
+                陈奕迅 · {isServerSynced ? '服务器同步原曲' : '纯净伴奏'}
               </span>
             </div>
 
@@ -420,12 +386,12 @@ export const MusicPlayer: React.FC = () => {
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: -8 }}
                 transition={{ duration: 0.2 }}
-                className="absolute top-12 left-0 w-64 sm:w-72 bg-white/95 backdrop-blur-md rounded-2xl p-4 border border-pink-200/90 shadow-[0_12px_36px_rgba(244,114,182,0.22)] text-left"
+                className="absolute top-12 left-0 w-72 sm:w-80 bg-white/95 backdrop-blur-md rounded-2xl p-4 border border-pink-200/90 shadow-[0_12px_36px_rgba(244,114,182,0.22)] text-left"
               >
                 <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-pink-100">
                   <div className="flex items-center gap-1.5 text-xs font-serif font-medium text-pink-900">
                     <Music className="w-3.5 h-3.5 text-pink-500" />
-                    <span>岁月如歌 · 陈奕迅</span>
+                    <span>固定曲目：陈奕迅《岁月如歌》</span>
                   </div>
                   <span className="text-[10px] text-pink-500 bg-pink-50 px-2 py-0.5 rounded-full">
                     {isPlaying ? '自动播放中' : '已暂停'}
@@ -433,17 +399,32 @@ export const MusicPlayer: React.FC = () => {
                 </div>
 
                 <p className="text-[11px] text-[#6b5560] leading-relaxed mb-3 font-serif">
-                  “爱若难以放进手中，何不将这双手放进心里抱拥。”
+                  “天气不似预期，但要走，总要飞。”
                 </p>
 
-                {/* Status indicator */}
-                <div className="p-2 rounded-xl bg-pink-50/60 border border-pink-100/70 mb-3 text-[11px] text-pink-800">
-                  <div className="flex items-center gap-1.5">
-                    <Check className="w-3.5 h-3.5 text-pink-500" />
-                    <span>固定曲目：陈奕迅《岁月如歌》</span>
+                {/* Server Status Box */}
+                <div className={`p-2.5 rounded-xl border mb-3 text-xs ${
+                  isServerSynced
+                    ? 'bg-emerald-50/70 border-emerald-200/80 text-emerald-900'
+                    : 'bg-pink-50/70 border-pink-200/80 text-pink-900'
+                }`}>
+                  <div className="flex items-center gap-1.5 font-medium">
+                    {isServerSynced ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                        <span>已同步到服务器 (所有访客均可收听)</span>
+                      </>
+                    ) : (
+                      <>
+                        <AlertCircle className="w-4 h-4 text-pink-500 flex-shrink-0" />
+                        <span>尚未固化到服务器 (当前为伴奏)</span>
+                      </>
+                    )}
                   </div>
-                  <p className="text-[10px] text-rose-400 mt-0.5 pl-5">
-                    {hasSavedFile ? '已绑定你的专属原版音频（永久记忆）' : '当前为内置纯净轻音乐伴奏'}
+                  <p className="text-[10px] text-rose-500/80 mt-1 leading-normal pl-5">
+                    {isServerSynced
+                      ? '已成为服务器固定音频文件，任何人无论用电脑还是手机打开网页，都能自动播放这首歌。'
+                      : '请点击下方按钮，将你的《岁月如歌.mp3》直接同步固化到网站服务器。'}
                   </p>
                 </div>
 
@@ -464,34 +445,22 @@ export const MusicPlayer: React.FC = () => {
                   />
                 </div>
 
-                {/* Actions */}
-                <div className="pt-2 border-t border-pink-100/80 flex items-center justify-between">
+                {/* Server Sync Button */}
+                <div className="pt-2 border-t border-pink-100/80">
                   <button
+                    disabled={isUploading}
                     onClick={() => fileInputRef.current?.click()}
-                    className="inline-flex items-center gap-1 text-[11px] font-sans text-pink-600 hover:text-pink-700 bg-pink-50 hover:bg-pink-100 px-2.5 py-1 rounded-md transition cursor-pointer"
+                    className="w-full inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-gradient-to-r from-pink-400 to-rose-400 hover:from-pink-500 hover:to-rose-500 text-white text-xs font-sans font-medium shadow-xs transition cursor-pointer disabled:opacity-60"
                   >
-                    <Folder className="w-3 h-3" />
-                    <span>导入本地原版MP3</span>
+                    <UploadCloud className="w-4 h-4" />
+                    <span>
+                      {isUploading
+                        ? '正在同步上传到服务器...'
+                        : isServerSynced
+                        ? '重新同步覆盖服务器音频'
+                        : '一键将你的 MP3 同步固化到服务器'}
+                    </span>
                   </button>
-
-                  {hasSavedFile && (
-                    <button
-                      onClick={async () => {
-                        const db = await openDB();
-                        const tx = db.transaction(STORE_NAME, 'readwrite');
-                        tx.objectStore(STORE_NAME).delete(AUDIO_KEY);
-                        setHasSavedFile(false);
-                        setAudioSource('synth');
-                        stopPlayback();
-                        setTimeout(startPlayback, 100);
-                      }}
-                      title="重置为默认伴奏"
-                      className="text-[10px] text-rose-300 hover:text-rose-500 flex items-center gap-0.5 cursor-pointer"
-                    >
-                      <RotateCcw className="w-2.5 h-2.5" />
-                      <span>重置</span>
-                    </button>
-                  )}
                 </div>
               </motion.div>
             )}
