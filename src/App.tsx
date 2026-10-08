@@ -8,6 +8,7 @@ import { DictionarySection } from './components/DictionarySection';
 import { PhotoSection } from './components/PhotoSection';
 import { LockedBoxSection } from './components/LockedBoxSection';
 import { EndingSection } from './components/EndingSection';
+import { MusicPlayer } from './components/MusicPlayer';
 
 export default function App() {
   const handleStart = () => {
@@ -80,6 +81,9 @@ export default function App() {
         {/* Module 6: Ending */}
         <EndingSection />
       </main>
+
+      {/* Floating Gentle Music Player */}
+      <MusicPlayer />
     </div>
   );
 }
