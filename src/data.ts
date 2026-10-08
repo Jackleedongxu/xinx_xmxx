@@ -44,7 +44,7 @@ export const SITE_DATA = {
     {
       id: 1,
       thought: "她在大厅不说话，是不爱理我",
-      truth: "她也在挑人。她习惯被踢",
+      truth: "她也在摇人。她习惯被踢。",
     },
     {
       id: 2,
@@ -116,7 +116,7 @@ export const SITE_DATA = {
     {
       id: 1,
       word: "摇一摇",
-      detail: "我摇到一个 0 伤害的新手。她摇到一个不说话的新手。",
+      detail: "她摇到一个 0 伤害的新手。",
     },
     {
       id: 2,
