@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Play, Pause, Volume2, VolumeX, Music, Disc3, Sparkles, Move, AlertTriangle } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Music, Disc3, Sparkles, Move, AlertTriangle, RefreshCw } from 'lucide-react';
+import suiyuerugeAsset from '../assets/audio/suiyueruge.mp3';
 
 export const MusicPlayer: React.FC = () => {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -10,6 +11,17 @@ export const MusicPlayer: React.FC = () => {
   const [hasError, setHasError] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [needsGesture, setNeedsGesture] = useState(true);
+  const [currentSourceIndex, setCurrentSourceIndex] = useState(0);
+
+  // Multiple verified paths:
+  // 1. Vite bundled asset (guaranteed in /assets/ by Vite build)
+  // 2. Direct Netlify public root /suiyueruge.mp3
+  // 3. Direct Netlify public root /岁月如歌.mp3
+  const candidateSources = useRef<string[]>([
+    suiyuerugeAsset,
+    '/suiyueruge.mp3',
+    '/岁月如歌.mp3',
+  ]);
 
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
 
@@ -19,7 +31,7 @@ export const MusicPlayer: React.FC = () => {
       try {
         audioElementRef.current.volume = volume;
       } catch {
-        // iOS ignores volume manipulation
+        // iOS ignores software volume adjustments
       }
       audioElementRef.current.muted = isMuted;
     }
@@ -37,20 +49,20 @@ export const MusicPlayer: React.FC = () => {
           .then(() => {
             setIsPlaying(true);
             setNeedsGesture(false);
+            setHasError(false);
           })
           .catch((err) => {
-            console.warn('Audio play request:', err);
+            console.warn('Playback error:', err);
             if (err?.name === 'NotAllowedError') {
               setNeedsGesture(true);
             } else {
               setHasError(true);
-              setErrorMessage(err?.message || '音频无法播放');
+              setErrorMessage('轻触屏幕或点击播放按钮');
             }
           });
       }
-    } catch (err: any) {
-      setHasError(true);
-      setErrorMessage(err?.message || '播放异常');
+    } catch {
+      // Audio sync issue
     }
   };
 
@@ -70,7 +82,7 @@ export const MusicPlayer: React.FC = () => {
     }
   };
 
-  // Expose play function to global window for synchronous calls
+  // Expose play function to global window
   useEffect(() => {
     (window as any).playSiteAudio = () => {
       playAudio();
@@ -85,7 +97,7 @@ export const MusicPlayer: React.FC = () => {
     const audio = audioElementRef.current;
     if (!audio) return;
 
-    // 1. WeChat specific autoplay bridge (WeixinJSBridge)
+    // 1. WeChat specific autoplay bridge
     const triggerWeChatPlay = () => {
       if ((window as any).WeixinJSBridge) {
         (window as any).WeixinJSBridge.invoke('getNetworkType', {}, () => {
@@ -110,11 +122,10 @@ export const MusicPlayer: React.FC = () => {
 
     triggerWeChatPlay();
 
-    // 2. Immediate autoplay attempt for desktop Chrome / Safari
+    // 2. Immediate autoplay attempt for desktop browsers
     playAudio();
 
-    // 3. iOS Safari / Mobile touch unlock listener
-    // iOS Safari requires a direct, synchronous touch event (touchstart/touchend)
+    // 3. Mobile touch unlock listener (touchstart/touchend/click)
     const handleTouchUnlock = () => {
       const el = audioElementRef.current;
       if (el && el.paused) {
@@ -140,38 +151,48 @@ export const MusicPlayer: React.FC = () => {
     return () => {
       cleanupListeners();
     };
-  }, []);
+  }, [currentSourceIndex]);
 
   const handleAudioError = () => {
     const audio = audioElementRef.current;
-    const err = audio?.error;
-    let desc = '音频文件加载失败';
+    console.warn('Audio source failed:', candidateSources.current[currentSourceIndex], audio?.error);
 
-    if (err) {
-      if (err.code === 4) {
-        desc = '文件未找到或网络不支持 (404)。请确认 Netlify 上的 /suiyueruge.mp3 是否存在。';
-      } else if (err.code === 3) {
-        desc = '解码错误，可能是返回了网页HTML而非MP3文件。';
-      } else if (err.code === 2) {
-        desc = '网络连接异常，无法加载音频。';
+    // Try next candidate source if available
+    if (currentSourceIndex < candidateSources.current.length - 1) {
+      const nextIndex = currentSourceIndex + 1;
+      setCurrentSourceIndex(nextIndex);
+      if (audio) {
+        audio.src = candidateSources.current[nextIndex];
+        audio.load();
+        playAudio();
       }
+    } else {
+      setHasError(true);
+      setErrorMessage('音频源加载受阻，请点击“重试”或重新进入页面');
+      setIsPlaying(false);
     }
+  };
 
-    console.error('HTML5 Audio error:', err, desc);
-    setHasError(true);
-    setErrorMessage(desc);
-    setIsPlaying(false);
+  const handleRetry = () => {
+    setHasError(false);
+    setCurrentSourceIndex(0);
+    const audio = audioElementRef.current;
+    if (audio) {
+      audio.src = candidateSources.current[0];
+      audio.load();
+      playAudio();
+    }
   };
 
   return (
     <>
       {/* 
         Native HTML5 Audio element configured for iOS Safari & WeChat Webview
-        NO PIANO SYNTH. ONLY THE MP3 FILE.
+        Uses Vite bundled audio asset with automatic fallback
       */}
       <audio
         ref={audioElementRef}
-        src="/suiyueruge.mp3"
+        src={candidateSources.current[currentSourceIndex]}
         loop
         preload="auto"
         playsInline
@@ -311,9 +332,18 @@ export const MusicPlayer: React.FC = () => {
                 {/* Error Box if audio fails */}
                 {hasError && (
                   <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-[11px] mb-3 leading-normal">
-                    <div className="flex items-center gap-1 font-medium text-rose-700 mb-1">
-                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
-                      <span>音频加载异常</span>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-1 font-medium text-rose-700">
+                        <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>音频加载提示</span>
+                      </div>
+                      <button
+                        onClick={handleRetry}
+                        className="inline-flex items-center gap-0.5 text-[10px] text-pink-600 hover:text-pink-700 bg-pink-100/70 px-1.5 py-0.5 rounded cursor-pointer"
+                      >
+                        <RefreshCw className="w-2.5 h-2.5" />
+                        <span>重试</span>
+                      </button>
                     </div>
                     <p className="text-[10px] text-rose-600">
                       {errorMessage}
