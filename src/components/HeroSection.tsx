@@ -8,6 +8,11 @@ interface HeroSectionProps {
 }
 
 export const HeroSection: React.FC<HeroSectionProps> = ({ onStart }) => {
+  const handleStartClick = () => {
+    window.dispatchEvent(new CustomEvent('play-site-music'));
+    onStart();
+  };
+
   return (
     <section className="relative min-h-[90vh] flex flex-col items-center justify-center text-center px-4 sm:px-6 pt-16 pb-20 overflow-hidden">
       {/* Decorative ambient glowing orbs */}
@@ -63,7 +68,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onStart }) => {
         transition={{ duration: 0.8, delay: 0.6 }}
       >
         <button
-          onClick={onStart}
+          onClick={handleStartClick}
           className="group relative inline-flex items-center gap-2.5 px-8 py-3.5 rounded-full bg-gradient-to-r from-pink-400 via-rose-400 to-pink-400 text-white font-medium text-sm sm:text-base tracking-wider shadow-[0_8px_20px_rgba(244,114,182,0.3)] hover:shadow-[0_12px_28px_rgba(244,114,182,0.45)] hover:-translate-y-0.5 active:translate-y-0 transition-all duration-300 cursor-pointer"
         >
           <span>{SITE_DATA.cover.buttonText}</span>
