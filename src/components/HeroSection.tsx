@@ -9,6 +9,11 @@ interface HeroSectionProps {
 
 export const HeroSection: React.FC<HeroSectionProps> = ({ onStart }) => {
   const handleStartClick = () => {
+    try {
+      (window as any).playSiteAudio?.();
+    } catch {
+      // ignore
+    }
     window.dispatchEvent(new CustomEvent('play-site-music'));
     onStart();
   };

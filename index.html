@@ -15,6 +15,16 @@
   </head>
   <body class="bg-[#FFF5F7] text-[#4A3B43] selection:bg-pink-200 selection:text-pink-900 antialiased overflow-x-hidden font-serif">
     <div id="root"></div>
+    <script>
+      // Global WeChat JSBridge audio auto-unlock
+      function unlockWeChatAudio() {
+        var audio = document.querySelector('audio');
+        if (audio && audio.paused) {
+          audio.play().catch(function() {});
+        }
+      }
+      document.addEventListener('WeixinJSBridgeReady', unlockWeChatAudio, false);
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

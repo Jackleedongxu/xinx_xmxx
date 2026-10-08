@@ -16,29 +16,41 @@ export const MusicPlayer: React.FC = () => {
   // Sync volume and mute
   useEffect(() => {
     if (audioElementRef.current) {
-      audioElementRef.current.volume = volume;
+      try {
+        audioElementRef.current.volume = volume;
+      } catch {
+        // iOS ignores volume manipulation
+      }
       audioElementRef.current.muted = isMuted;
     }
   }, [volume, isMuted]);
 
-  const playAudio = async () => {
+  const playAudio = () => {
     const audio = audioElementRef.current;
     if (!audio) return;
 
     try {
       setHasError(false);
-      await audio.play();
-      setIsPlaying(true);
-      setNeedsGesture(false);
-    } catch (err: any) {
-      console.warn('Audio play request:', err);
-      if (err?.name === 'NotAllowedError') {
-        // Modern browser blocked unprompted autoplay
-        setNeedsGesture(true);
-      } else {
-        setHasError(true);
-        setErrorMessage(err?.message || '音频无法播放');
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            setIsPlaying(true);
+            setNeedsGesture(false);
+          })
+          .catch((err) => {
+            console.warn('Audio play request:', err);
+            if (err?.name === 'NotAllowedError') {
+              setNeedsGesture(true);
+            } else {
+              setHasError(true);
+              setErrorMessage(err?.message || '音频无法播放');
+            }
+          });
       }
+    } catch (err: any) {
+      setHasError(true);
+      setErrorMessage(err?.message || '播放异常');
     }
   };
 
@@ -58,47 +70,72 @@ export const MusicPlayer: React.FC = () => {
     }
   };
 
-  // Browser Autoplay Strategy:
-  // 1. Try to autoplay on page load
-  // 2. If blocked by browser policy, listen to any touch/click gesture on page to start immediately
+  // Expose play function to global window for synchronous calls
+  useEffect(() => {
+    (window as any).playSiteAudio = () => {
+      playAudio();
+    };
+    return () => {
+      delete (window as any).playSiteAudio;
+    };
+  }, []);
+
+  // WeChat & iOS Safari Autoplay & Gesture Unlock Engine
   useEffect(() => {
     const audio = audioElementRef.current;
-    if (audio) {
-      // Attempt immediate autoplay
-      audio.play().then(() => {
-        setIsPlaying(true);
-        setNeedsGesture(false);
-      }).catch(() => {
-        // Autoplay policy prevented playback, wait for first user interaction
-        setNeedsGesture(true);
-      });
-    }
+    if (!audio) return;
 
-    // Global interaction listener: first touch/click anywhere on page unlocks sound
-    const handleUserInteraction = () => {
+    // 1. WeChat specific autoplay bridge (WeixinJSBridge)
+    const triggerWeChatPlay = () => {
+      if ((window as any).WeixinJSBridge) {
+        (window as any).WeixinJSBridge.invoke('getNetworkType', {}, () => {
+          playAudio();
+        });
+      } else {
+        document.addEventListener(
+          'WeixinJSBridgeReady',
+          () => {
+            if ((window as any).WeixinJSBridge) {
+              (window as any).WeixinJSBridge.invoke('getNetworkType', {}, () => {
+                playAudio();
+              });
+            } else {
+              playAudio();
+            }
+          },
+          false
+        );
+      }
+    };
+
+    triggerWeChatPlay();
+
+    // 2. Immediate autoplay attempt for desktop Chrome / Safari
+    playAudio();
+
+    // 3. iOS Safari / Mobile touch unlock listener
+    // iOS Safari requires a direct, synchronous touch event (touchstart/touchend)
+    const handleTouchUnlock = () => {
       const el = audioElementRef.current;
       if (el && el.paused) {
-        el.play().then(() => {
-          setIsPlaying(true);
-          setNeedsGesture(false);
-        }).catch((e) => {
-          console.warn('Playback error on gesture:', e);
-        });
+        playAudio();
       }
       cleanupListeners();
     };
 
     const cleanupListeners = () => {
-      window.removeEventListener('click', handleUserInteraction);
-      window.removeEventListener('touchstart', handleUserInteraction);
-      window.removeEventListener('scroll', handleUserInteraction);
-      window.removeEventListener('play-site-music', handleUserInteraction);
+      window.removeEventListener('touchstart', handleTouchUnlock);
+      window.removeEventListener('touchend', handleTouchUnlock);
+      window.removeEventListener('click', handleTouchUnlock);
+      window.removeEventListener('pointerdown', handleTouchUnlock);
+      window.removeEventListener('play-site-music', handleTouchUnlock);
     };
 
-    window.addEventListener('click', handleUserInteraction, { once: true });
-    window.addEventListener('touchstart', handleUserInteraction, { once: true });
-    window.addEventListener('scroll', handleUserInteraction, { once: true });
-    window.addEventListener('play-site-music', handleUserInteraction);
+    window.addEventListener('touchstart', handleTouchUnlock, { passive: true, once: true });
+    window.addEventListener('touchend', handleTouchUnlock, { passive: true, once: true });
+    window.addEventListener('click', handleTouchUnlock, { once: true });
+    window.addEventListener('pointerdown', handleTouchUnlock, { once: true });
+    window.addEventListener('play-site-music', handleTouchUnlock);
 
     return () => {
       cleanupListeners();
@@ -108,13 +145,13 @@ export const MusicPlayer: React.FC = () => {
   const handleAudioError = () => {
     const audio = audioElementRef.current;
     const err = audio?.error;
-    let desc = '音频文件无法加载';
+    let desc = '音频文件加载失败';
 
     if (err) {
       if (err.code === 4) {
-        desc = '文件未找到或格式不支持 (404)。请检查 Netlify 部署的 /suiyueruge.mp3 是否存在。';
+        desc = '文件未找到或网络不支持 (404)。请确认 Netlify 上的 /suiyueruge.mp3 是否存在。';
       } else if (err.code === 3) {
-        desc = '音频解码失败，可能是返回了网页HTML而非MP3文件。';
+        desc = '解码错误，可能是返回了网页HTML而非MP3文件。';
       } else if (err.code === 2) {
         desc = '网络连接异常，无法加载音频。';
       }
@@ -129,13 +166,19 @@ export const MusicPlayer: React.FC = () => {
   return (
     <>
       {/* 
-        Pure Audio Element with multiple path fallbacks (English + Chinese filenames)
+        Native HTML5 Audio element configured for iOS Safari & WeChat Webview
         NO PIANO SYNTH. ONLY THE MP3 FILE.
       */}
       <audio
         ref={audioElementRef}
+        src="/suiyueruge.mp3"
         loop
         preload="auto"
+        playsInline
+        // @ts-ignore
+        webkit-playsinline="true"
+        x5-playsinline="true"
+        x-webkit-airplay="allow"
         onPlay={() => {
           setIsPlaying(true);
           setNeedsGesture(false);
@@ -143,10 +186,7 @@ export const MusicPlayer: React.FC = () => {
         }}
         onPause={() => setIsPlaying(false)}
         onError={handleAudioError}
-      >
-        <source src="/suiyueruge.mp3" type="audio/mpeg" />
-        <source src="/岁月如歌.mp3" type="audio/mpeg" />
-      </audio>
+      />
 
       {/* Fixed at Bottom Left: fixed bottom-5 sm:bottom-6 left-3 sm:left-6 z-50 */}
       <div className="fixed bottom-5 sm:bottom-6 left-3 sm:left-6 z-50 pointer-events-none">
@@ -299,7 +339,7 @@ export const MusicPlayer: React.FC = () => {
                 </div>
 
                 <div className="mt-2.5 pt-2 border-t border-pink-100 text-[10px] text-rose-400/80 flex items-center justify-between">
-                  <span>可拖动胶囊位置</span>
+                  <span>支持微信与Safari全端</span>
                   <button
                     onClick={() => setIsExpanded(false)}
                     className="text-pink-600 hover:text-pink-700 cursor-pointer"
