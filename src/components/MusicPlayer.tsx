@@ -1,40 +1,194 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Play, Pause, Volume2, VolumeX, Music, Disc3, Sparkles, Move } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Music, Disc3, Sparkles, Move, AlertCircle, CheckCircle2 } from 'lucide-react';
+
+// Musical notes and chords for Eason Chan's classic "岁月如歌" fallback synthesizer
+const NOTE_FREQS: Record<string, number> = {
+  A3: 220.00, B3: 246.94,
+  C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392.00, A4: 440.00, B4: 493.88,
+  C5: 523.25, D5: 587.33, E5: 659.25, F5: 698.46, G5: 783.99, A5: 880.00,
+};
+
+const SUI_YUE_RU_GE_MELODY: { note: string; duration: number }[] = [
+  // Verse: 爱若难以放进手中
+  { note: 'E4', duration: 0.75 }, { note: 'G4', duration: 0.75 }, { note: 'A4', duration: 0.75 }, { note: 'G4', duration: 0.75 },
+  { note: 'E4', duration: 0.5 }, { note: 'D4', duration: 0.5 }, { note: 'C4', duration: 0.75 }, { note: 'D4', duration: 1.5 },
+  // 何不将这双手放进心里抱拥
+  { note: 'E4', duration: 0.75 }, { note: 'G4', duration: 0.75 }, { note: 'A4', duration: 0.75 }, { note: 'G4', duration: 0.75 },
+  { note: 'E4', duration: 0.5 }, { note: 'D4', duration: 0.5 }, { note: 'C4', duration: 0.75 },
+  { note: 'E4', duration: 0.5 }, { note: 'D4', duration: 0.5 }, { note: 'C4', duration: 1.5 },
+
+  // 拿到绝症也竭力微笑
+  { note: 'E4', duration: 0.75 }, { note: 'G4', duration: 0.75 }, { note: 'A4', duration: 0.75 }, { note: 'G4', duration: 0.75 },
+  { note: 'E4', duration: 0.5 }, { note: 'D4', duration: 0.5 }, { note: 'C4', duration: 0.75 }, { note: 'D4', duration: 1.5 },
+  // 犹如放假 都不怕
+  { note: 'E4', duration: 0.75 }, { note: 'G4', duration: 0.75 }, { note: 'A4', duration: 0.75 }, { note: 'G4', duration: 0.75 },
+  { note: 'E4', duration: 0.5 }, { note: 'D4', duration: 0.5 }, { note: 'C4', duration: 0.75 },
+  { note: 'D4', duration: 0.5 }, { note: 'C4', duration: 2.0 },
+
+  // Chorus: 天气不似预期 但要走 总要飞
+  { note: 'G4', duration: 0.75 }, { note: 'G4', duration: 0.75 }, { note: 'E4', duration: 0.5 },
+  { note: 'D4', duration: 0.5 }, { note: 'C4', duration: 0.75 }, { note: 'D4', duration: 1.5 },
+  { note: 'E4', duration: 0.75 }, { note: 'G4', duration: 0.75 }, { note: 'A4', duration: 1.5 },
+  { note: 'G4', duration: 0.75 }, { note: 'A4', duration: 0.75 }, { note: 'C5', duration: 2.0 },
+
+  // 道别不可再等待
+  { note: 'D5', duration: 0.75 }, { note: 'C5', duration: 0.75 }, { note: 'A4', duration: 0.75 },
+  { note: 'G4', duration: 0.75 }, { note: 'E4', duration: 0.75 }, { note: 'D4', duration: 0.75 }, { note: 'C4', duration: 1.5 },
+
+  // 由我们在这一刹的飞跃中
+  { note: 'D4', duration: 0.5 }, { note: 'E4', duration: 0.5 }, { note: 'G4', duration: 0.75 },
+  { note: 'A4', duration: 0.75 }, { note: 'G4', duration: 0.5 }, { note: 'E4', duration: 0.5 },
+  { note: 'D4', duration: 0.5 }, { note: 'C4', duration: 0.5 }, { note: 'D4', duration: 0.75 }, { note: 'E4', duration: 1.5 },
+
+  // 当世界尚没原谅我 留紧一脸自豪
+  { note: 'A4', duration: 0.75 }, { note: 'G4', duration: 0.75 }, { note: 'E4', duration: 0.75 },
+  { note: 'C4', duration: 0.5 }, { note: 'D4', duration: 0.5 }, { note: 'E4', duration: 0.75 },
+  { note: 'D4', duration: 0.75 }, { note: 'C4', duration: 1.0 },
+  { note: 'A3', duration: 0.75 }, { note: 'C4', duration: 0.75 }, { note: 'D4', duration: 0.75 },
+  { note: 'E4', duration: 0.75 }, { note: 'D4', duration: 0.75 }, { note: 'C4', duration: 3.0 },
+];
 
 export const MusicPlayer: React.FC = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [volume, setVolume] = useState(0.75);
+  const [audioMode, setAudioMode] = useState<'file' | 'synth'>('file');
+  const [fileLoadError, setFileLoadError] = useState(false);
+  const [waitingGesture, setWaitingGesture] = useState(true);
 
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const isPlayingRef = useRef(false);
+  const isMutedRef = useRef(false);
+  const volumeRef = useRef(0.75);
+  const timeoutIdsRef = useRef<number[]>([]);
 
   useEffect(() => {
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
 
   useEffect(() => {
+    isMutedRef.current = isMuted;
     if (audioElementRef.current) {
       audioElementRef.current.muted = isMuted;
     }
   }, [isMuted]);
 
   useEffect(() => {
+    volumeRef.current = volume;
     if (audioElementRef.current) {
       audioElementRef.current.volume = volume;
     }
   }, [volume]);
 
+  // Soft piano note generator for synthetic fallback
+  const playPianoNote = (ctx: AudioContext, freq: number, durationSec: number, startTime: number) => {
+    if (isMutedRef.current) return;
+
+    const osc1 = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(1400, startTime);
+    filter.frequency.exponentialRampToValueAtTime(300, startTime + durationSec);
+
+    osc1.type = 'triangle';
+    osc1.frequency.setValueAtTime(freq, startTime);
+
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(freq * 0.998, startTime);
+
+    const masterVol = volumeRef.current * 0.45;
+    gainNode.gain.setValueAtTime(0.0001, startTime);
+    gainNode.gain.exponentialRampToValueAtTime(masterVol, startTime + 0.03);
+    gainNode.gain.exponentialRampToValueAtTime(masterVol * 0.6, startTime + 0.25);
+    gainNode.gain.exponentialRampToValueAtTime(0.00001, startTime + durationSec + 0.4);
+
+    osc1.connect(filter);
+    osc2.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(ctx.destination);
+
+    osc1.start(startTime);
+    osc2.start(startTime);
+    osc1.stop(startTime + durationSec + 0.5);
+    osc2.stop(startTime + durationSec + 0.5);
+  };
+
+  const scheduleMelodyLoop = () => {
+    if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
+      audioCtxRef.current = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+    }
+
+    const ctx = audioCtxRef.current;
+    if (ctx.state === 'suspended') {
+      ctx.resume();
+    }
+
+    timeoutIdsRef.current.forEach(clearTimeout);
+    timeoutIdsRef.current = [];
+
+    let currentOffset = 0.2;
+    const tempoSecondsPerBeat = 0.55;
+
+    SUI_YUE_RU_GE_MELODY.forEach((item) => {
+      const freq = NOTE_FREQS[item.note] || 261.63;
+      const duration = item.duration * tempoSecondsPerBeat;
+
+      const tId = window.setTimeout(() => {
+        if (isPlayingRef.current && audioMode === 'synth' && audioCtxRef.current) {
+          playPianoNote(audioCtxRef.current, freq, duration, audioCtxRef.current.currentTime);
+        }
+      }, currentOffset * 1000);
+
+      timeoutIdsRef.current.push(tId);
+      currentOffset += duration;
+    });
+
+    const loopDurationMs = (currentOffset + 2.5) * 1000;
+    const loopTimeout = window.setTimeout(() => {
+      if (isPlayingRef.current && audioMode === 'synth') {
+        scheduleMelodyLoop();
+      }
+    }, loopDurationMs);
+
+    timeoutIdsRef.current.push(loopTimeout);
+  };
+
   const startPlayback = async () => {
-    if (!audioElementRef.current) return;
+    setWaitingGesture(false);
+
+    // If in file mode and audio file is valid
+    if (audioMode === 'file' && audioElementRef.current && !fileLoadError) {
+      try {
+        await audioElementRef.current.play();
+        setIsPlaying(true);
+        isPlayingRef.current = true;
+        return;
+      } catch (err: any) {
+        console.warn('Audio element play failed, falling back to synth...', err);
+        // If file playback fails (e.g. 404 or decode error), switch to synth
+        setAudioMode('synth');
+      }
+    }
+
+    // Play synthetic piano version of 岁月如歌
     try {
-      await audioElementRef.current.play();
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      }
+      if (audioCtxRef.current.state === 'suspended') {
+        await audioCtxRef.current.resume();
+      }
       setIsPlaying(true);
       isPlayingRef.current = true;
+      scheduleMelodyLoop();
     } catch {
-      // Browser autoplay restriction before user interaction
+      // AudioContext locked
     }
   };
 
@@ -42,6 +196,8 @@ export const MusicPlayer: React.FC = () => {
     if (audioElementRef.current) {
       audioElementRef.current.pause();
     }
+    timeoutIdsRef.current.forEach(clearTimeout);
+    timeoutIdsRef.current = [];
     setIsPlaying(false);
     isPlayingRef.current = false;
   };
@@ -54,21 +210,27 @@ export const MusicPlayer: React.FC = () => {
     }
   };
 
-  // Autoplay on load + fallback on first user gesture (touch, scroll, click)
+  // Handle audio error on Netlify (e.g., if /suiyueruge.mp3 was not in the GitHub push)
+  const handleAudioError = (e: any) => {
+    console.error('Audio file failed to load (/suiyueruge.mp3):', e);
+    setFileLoadError(true);
+    setAudioMode('synth');
+    // If user already wanted to play, seamlessly transition to synth
+    if (isPlayingRef.current) {
+      scheduleMelodyLoop();
+    }
+  };
+
+  // Autoplay attempt on load + fallback on user interaction
   useEffect(() => {
     const timer = setTimeout(() => {
-      startPlayback();
-    }, 300);
+      startPlayback().catch(() => {});
+    }, 400);
 
     const handleFirstInteraction = () => {
-      if (!isPlayingRef.current && audioElementRef.current) {
-        audioElementRef.current
-          .play()
-          .then(() => {
-            setIsPlaying(true);
-            isPlayingRef.current = true;
-          })
-          .catch(() => {});
+      setWaitingGesture(false);
+      if (!isPlayingRef.current) {
+        startPlayback().catch(() => {});
       }
       window.removeEventListener('click', handleFirstInteraction);
       window.removeEventListener('touchstart', handleFirstInteraction);
@@ -83,30 +245,31 @@ export const MusicPlayer: React.FC = () => {
 
     return () => {
       clearTimeout(timer);
+      timeoutIdsRef.current.forEach(clearTimeout);
       window.removeEventListener('click', handleFirstInteraction);
       window.removeEventListener('touchstart', handleFirstInteraction);
       window.removeEventListener('scroll', handleFirstInteraction);
       window.removeEventListener('keydown', handleFirstInteraction);
     };
-  }, []);
+  }, [audioMode, fileLoadError]);
 
   return (
     <>
-      {/* Permanent Fixed Audio File bundled directly in the codebase (/public/suiyueruge.mp3) */}
+      {/* Permanent Fixed Audio File bundled in /public/suiyueruge.mp3 */}
       <audio
         ref={audioElementRef}
         src="/suiyueruge.mp3"
         loop
         preload="auto"
-        onPlay={() => setIsPlaying(true)}
+        onPlay={() => {
+          setIsPlaying(true);
+          setWaitingGesture(false);
+        }}
         onPause={() => setIsPlaying(false)}
+        onError={handleAudioError}
       />
 
-      {/* 
-        Fixed at Bottom Left initially: fixed bottom-5 sm:bottom-6 left-3 sm:left-6 z-50
-        Avoids top navigation and avoids bottom-right 'Powered by Netlify' badge.
-        Also draggable so the user can easily position it anywhere on screen.
-      */}
+      {/* Fixed at Bottom Left: fixed bottom-5 sm:bottom-6 left-3 sm:left-6 z-50 */}
       <div className="fixed bottom-5 sm:bottom-6 left-3 sm:left-6 z-50 pointer-events-none">
         <motion.div
           drag
@@ -123,7 +286,7 @@ export const MusicPlayer: React.FC = () => {
             <button
               onClick={() => setIsExpanded(!isExpanded)}
               className="relative flex items-center justify-center w-7 sm:w-8 h-7 sm:h-8 rounded-full bg-gradient-to-tr from-pink-400 to-rose-400 text-white shadow-xs cursor-pointer group flex-shrink-0"
-              title="轻触查看播放详情"
+              title="岁月如歌 · 播放详情"
             >
               <Disc3
                 className={`w-4 h-4 transition-transform duration-700 ${
@@ -152,7 +315,7 @@ export const MusicPlayer: React.FC = () => {
                 )}
               </div>
               <span className="text-[10px] text-rose-400/80 font-sans truncate">
-                陈奕迅 · 原版
+                陈奕迅 · {audioMode === 'file' && !fileLoadError ? '原版' : '伴奏'}
               </span>
             </div>
 
@@ -191,7 +354,18 @@ export const MusicPlayer: React.FC = () => {
             </div>
           </div>
 
-          {/* Expanded Drawer / Control Card (Pops UPWARDS from bottom-left) */}
+          {/* Touch Gesture Prompt on mobile if waiting */}
+          {waitingGesture && !isPlaying && (
+            <motion.div
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="absolute -top-7 left-1 px-2.5 py-1 rounded-full bg-pink-500/90 text-white text-[10px] whitespace-nowrap shadow-xs pointer-events-none"
+            >
+              轻触屏幕任意处出声 ♫
+            </motion.div>
+          )}
+
+          {/* Expanded Drawer / Control Card */}
           <AnimatePresence>
             {isExpanded && (
               <motion.div
@@ -211,9 +385,29 @@ export const MusicPlayer: React.FC = () => {
                   </span>
                 </div>
 
-                <p className="text-[11px] text-[#6b5560] leading-relaxed mb-3 font-serif">
+                <p className="text-[11px] text-[#6b5560] leading-relaxed mb-2.5 font-serif">
                   “天气不似预期，但要走，总要飞。”
                 </p>
+
+                {/* Netlify / GitHub audio diagnosis badge */}
+                <div className="p-2 rounded-xl bg-pink-50/70 border border-pink-100/80 mb-3 text-[11px]">
+                  {fileLoadError ? (
+                    <div className="text-amber-800">
+                      <div className="flex items-center gap-1 font-medium text-amber-700">
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+                        <span>已启动备用轻音乐旋律</span>
+                      </div>
+                      <p className="text-[10px] text-amber-700/80 mt-1 leading-normal">
+                        提示：Netlify未获取到 <code>/suiyueruge.mp3</code>，请检查GitHub仓库的 <code>public/</code> 文件夹中是否包含该MP3。
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-emerald-800">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                      <span>已加载原版《岁月如歌》音频</span>
+                    </div>
+                  )}
+                </div>
 
                 {/* Volume Slider */}
                 <div className="space-y-1">
@@ -233,7 +427,7 @@ export const MusicPlayer: React.FC = () => {
                 </div>
 
                 <div className="mt-2.5 pt-2 border-t border-pink-100 text-[10px] text-rose-400/80 flex items-center justify-between">
-                  <span>可按住胶囊右侧自由拖动</span>
+                  <span>按住胶囊可拖动</span>
                   <button
                     onClick={() => setIsExpanded(false)}
                     className="text-pink-600 hover:text-pink-700 cursor-pointer"
