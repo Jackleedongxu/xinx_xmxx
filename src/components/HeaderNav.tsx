@@ -13,7 +13,7 @@ export const HeaderNav: React.FC = () => {
         setScrollProgress((window.scrollY / totalScroll) * 100);
       }
 
-      const sections = ['contrasts', 'ious', 'timeline', 'dictionary', 'locked-box'];
+      const sections = ['contrasts', 'ious', 'timeline', 'dictionary', 'photo-memory', 'locked-box'];
       for (const section of sections) {
         const el = document.getElementById(section);
         if (el) {
@@ -42,6 +42,7 @@ export const HeaderNav: React.FC = () => {
     { id: 'ious', label: '四条欠条' },
     { id: 'timeline', label: '物件' },
     { id: 'dictionary', label: '词典' },
+    { id: 'photo-memory', label: '照片' },
     { id: 'locked-box', label: '锁' },
   ];
 

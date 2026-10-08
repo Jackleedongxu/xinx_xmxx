@@ -5,6 +5,7 @@ import { ContrastSection } from './components/ContrastSection';
 import { IouSection } from './components/IouSection';
 import { TimelineSection } from './components/TimelineSection';
 import { DictionarySection } from './components/DictionarySection';
+import { PhotoSection } from './components/PhotoSection';
 import { LockedBoxSection } from './components/LockedBoxSection';
 import { EndingSection } from './components/EndingSection';
 
@@ -61,6 +62,13 @@ export default function App() {
 
         {/* Module 4: Our Dictionary */}
         <DictionarySection />
+
+        <div className="max-w-md mx-auto w-full px-6">
+          <div className="h-[1px] bg-gradient-to-r from-transparent via-pink-200/60 to-transparent" />
+        </div>
+
+        {/* Optional Local Photo Keepsake */}
+        <PhotoSection />
 
         <div className="max-w-md mx-auto w-full px-6">
           <div className="h-[1px] bg-gradient-to-r from-transparent via-pink-200/60 to-transparent" />
