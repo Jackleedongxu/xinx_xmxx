@@ -1,0 +1,6 @@
+{
+  "name": "10.2 — 10.7 · 记录与事实",
+  "description": "把 10.2–10.7 之间真实发生过的事，做成一个可以走一遍的安静记录。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
